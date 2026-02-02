@@ -29,6 +29,7 @@ class TrainConfig:
     adamw_beta1: float
     adamw_beta2: float
     log_interval: int
+    save_interval: int
     seed: int
     save_path: Optional[Path]
 
@@ -44,7 +45,8 @@ def parse_args() -> TrainConfig:
     parser.add_argument("--adamw-weight-decay", type=float, default=0.01)
     parser.add_argument("--adamw-beta1", type=float, default=0.9)
     parser.add_argument("--adamw-beta2", type=float, default=0.999)
-    parser.add_argument("--log-interval", type=int, default=1000)
+    parser.add_argument("--log-interval", type=int, default=100)
+    parser.add_argument("--save-interval", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--save-path", type=str, default=None)
     args = parser.parse_args()
@@ -65,21 +67,46 @@ def parse_args() -> TrainConfig:
         adamw_beta1=args.adamw_beta1,
         adamw_beta2=args.adamw_beta2,
         log_interval=args.log_interval,
+        save_interval=args.save_interval,
         seed=args.seed,
         save_path=save_path,
     )
 
 
-def train_step(
-    model: BeliefStateTransformer, tokens: torch.Tensor, loss_fn: nn.Module
+def next_token_loss_from_logits(
+    logits: torch.Tensor, tokens: torch.Tensor, loss_fn: nn.Module
 ) -> torch.Tensor:
-    logits = model.forward_tokens(tokens)
     vocab_size = logits.shape[-1]
-    loss = loss_fn(
+    return loss_fn(
         logits[:, :-1, :].reshape(-1, vocab_size),
         tokens[:, 1:].reshape(-1),
     )
-    return loss
+
+
+def next_token_accuracy_from_logits(logits: torch.Tensor, tokens: torch.Tensor) -> torch.Tensor:
+    preds = logits[:, :-1, :].argmax(dim=-1)
+    targets = tokens[:, 1:]
+    return (preds == targets).to(torch.float32).mean()
+
+
+def kl_optimal_next_token_from_logits(
+    hmm: Mess3, tokens: torch.Tensor, logits: torch.Tensor
+) -> torch.Tensor:
+    opt_probs = hmm.optimal_next_token_probs(tokens)
+    logits = logits[:, :-1, :]
+    log_model = torch.log_softmax(logits, dim=-1).to(dtype=opt_probs.dtype)
+    log_opt = torch.log(opt_probs)
+    return (opt_probs * (log_opt - log_model)).sum(dim=-1).mean().to(torch.float32)
+
+
+def compute_metrics(
+    model: BeliefStateTransformer, hmm: Mess3, tokens: torch.Tensor, loss_fn: nn.Module
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    logits = model.forward_tokens(tokens)
+    loss = next_token_loss_from_logits(logits, tokens, loss_fn)
+    acc = next_token_accuracy_from_logits(logits, tokens)
+    kl = kl_optimal_next_token_from_logits(hmm, tokens, logits)
+    return loss, acc, kl
 
 
 def main() -> None:
@@ -128,6 +155,8 @@ def main() -> None:
             "adamw_weight_decay": config.adamw_weight_decay,
             "adamw_beta1": config.adamw_beta1,
             "adamw_beta2": config.adamw_beta2,
+            "log_interval": config.log_interval,
+            "save_interval": config.save_interval,
             "seed": config.seed,
             "model_config": {
                 "n_layers": model.cfg.n_layers,
@@ -147,24 +176,42 @@ def main() -> None:
         tokens = tokens.to(device)
 
         optimizer.zero_grad(set_to_none=True)
-        loss = train_step(model, tokens, loss_fn)
+        logits = model.forward_tokens(tokens)
+        loss = next_token_loss_from_logits(logits, tokens, loss_fn)
         loss.backward()
         optimizer.step()
-        wandb.log({"train_loss": float(loss.item())}, step=step)
 
-        if step == 1 or step % config.log_interval == 0:
-            elapsed = time.time() - start_time
-            print(f"step={step} loss={float(loss.item()):.6f} elapsed_s={elapsed:.2f}")
-        if step % 1000 == 0:
+        if step % config.log_interval == 0:
             model.eval()
             with torch.no_grad():
-                eval_tokens, _ = hmm.generate_batch(
-                    batch_size=config.batch_size, seq_len=config.seq_len
-                )
+                train_loss, train_acc, train_kl = compute_metrics(model, hmm, tokens, loss_fn)
+                eval_tokens, _ = hmm.generate_batch(batch_size=config.batch_size, seq_len=config.seq_len)
                 eval_tokens = eval_tokens.to(device)
-                eval_loss = train_step(model, eval_tokens, loss_fn)
+                eval_loss, eval_acc, eval_kl = compute_metrics(model, hmm, eval_tokens, loss_fn)
             model.train()
-            wandb.log({"eval_loss": float(eval_loss.item())}, step=step)
+
+            wandb.log(
+                {
+                    "train/loss": float(train_loss.item()),
+                    "train/acc": float(train_acc.item()),
+                    "train/kl_optimal": float(train_kl.item()),
+                    "eval/loss": float(eval_loss.item()),
+                    "eval/acc": float(eval_acc.item()),
+                    "eval/kl_optimal": float(eval_kl.item()),
+                },
+                step=step,
+            )
+            elapsed_s = time.time() - start_time
+            print(
+                f"step={step} "
+                f"train_loss={float(train_loss.item()):.6f} train_acc={float(train_acc.item()):.4f} "
+                f"train_kl_optimal={float(train_kl.item()):.6f} "
+                f"| eval_loss={float(eval_loss.item()):.6f} eval_acc={float(eval_acc.item()):.4f} "
+                f"eval_kl_optimal={float(eval_kl.item()):.6f} "
+                f"elapsed_s={elapsed_s:.2f}"
+            )
+
+        if step % config.save_interval == 0:
             torch.save(model.state_dict(), checkpoint_dir / f"step_{step}.pt")
 
     if config.save_path is not None:
