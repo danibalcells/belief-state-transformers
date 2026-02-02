@@ -1,0 +1,2 @@
+We are replicating the results from the "Transformers Represent Belief State Geometry in their Residual Stream" paper. More specifically, we want to reproduce the results with the Mess3 HMM. In order to do that, we need to generate training data from that model, and do pre-training with a transformer, where the goal is to predict the next observation in the sequence. Lastly, we will train a linear probe on the residual stream to try to recover the corresponding belief geometry for Mess3. 
+

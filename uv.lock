@@ -212,6 +212,7 @@ name = "belief-state-transformers"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "einops" },
     { name = "ipython" },
     { name = "matplotlib" },
     { name = "torch" },
@@ -220,6 +221,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "einops", specifier = ">=0.8.2" },
     { name = "ipython", specifier = ">=9.10.0" },
     { name = "matplotlib", specifier = ">=3.10.8" },
     { name = "torch", specifier = ">=2.10.0" },

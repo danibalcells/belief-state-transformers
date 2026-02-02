@@ -3,6 +3,7 @@ name = "belief-state-transformers"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
+    "einops>=0.8.2",
     "ipython>=9.10.0",
     "matplotlib>=3.10.8",
     "torch>=2.10.0",
