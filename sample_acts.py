@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Optional
 
+import matplotlib.pyplot as plt
 import torch
 
 from HMM import Mess3

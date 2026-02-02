@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+import matplotlib.pyplot as plt
 import torch
 import wandb
 from torch import nn
@@ -101,6 +102,7 @@ def main() -> None:
         },
     )
 
+    start_time = time.time()
     for epoch in range(1, config.epochs + 1):
         probe.train()
         train_loss = 0.0
@@ -119,6 +121,9 @@ def main() -> None:
         probe.eval()
         eval_loss = 0.0
         eval_count = 0
+        eval_simplex_preds: Optional[torch.Tensor] = None
+        eval_simplex_targets: Optional[torch.Tensor] = None
+        eval_labels: Optional[torch.Tensor] = None
         with torch.no_grad():
             for batch_acts, batch_beliefs in eval_loader:
                 batch_acts = batch_acts.to(device)
@@ -127,17 +132,35 @@ def main() -> None:
                 loss = loss_fn(preds, batch_beliefs)
                 eval_loss += float(loss.item()) * batch_acts.shape[0]
                 eval_count += batch_acts.shape[0]
+                if eval_simplex_preds is None:
+                    eval_simplex_preds = probe.simplex(preds).detach().to(device="cpu")
+                    eval_simplex_targets = probe.simplex(batch_beliefs).detach().to(device="cpu")
+                    eval_labels = batch_beliefs.detach().argmax(dim=-1).to(device="cpu")
 
         avg_train = train_loss / max(train_count, 1)
         avg_eval = eval_loss / max(eval_count, 1)
-        print(f"epoch={epoch} train_mse={avg_train:.6f} eval_mse={avg_eval:.6f}")
-        wandb.log(
-            {
-                "train/mse": avg_train,
-                "eval/mse": avg_eval,
-            },
-            step=epoch,
-        )
+        elapsed_s = time.time() - start_time
+        print(f"epoch={epoch} train_mse={avg_train:.6f} eval_mse={avg_eval:.6f} elapsed_s={elapsed_s:.2f}")
+        log_payload: dict[str, object] = {
+            "train/mse": avg_train,
+            "eval/mse": avg_eval,
+        }
+        if eval_simplex_preds is not None and eval_simplex_targets is not None and eval_labels is not None:
+            coords_pred = eval_simplex_preds.numpy()
+            coords_tgt = eval_simplex_targets.numpy()
+            labels = eval_labels.numpy()
+
+            fig, axes = plt.subplots(1, 2, figsize=(8, 4), constrained_layout=True)
+            axes[0].scatter(coords_pred[:, 0], coords_pred[:, 1], c=labels, cmap="tab10", s=6, alpha=0.8)
+            axes[0].set_title("eval: probe outputs (projected)")
+            axes[0].set_aspect("equal", adjustable="box")
+            axes[1].scatter(coords_tgt[:, 0], coords_tgt[:, 1], c=labels, cmap="tab10", s=6, alpha=0.8)
+            axes[1].set_title("eval: targets (projected)")
+            axes[1].set_aspect("equal", adjustable="box")
+            log_payload["simplex/eval"] = wandb.Image(fig)
+            plt.close(fig)
+
+        wandb.log(log_payload, step=epoch)
 
     output_dir = config.output_dir or (Path("outputs") / "probes" / run_id)
     output_dir.mkdir(parents=True, exist_ok=True)
