@@ -212,3 +212,5 @@ model_checkpoints/
 
 ## Wandb
 wandb/
+
+outputs/

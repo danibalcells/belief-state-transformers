@@ -8,7 +8,7 @@ Progress so far:
 - Implemented the Mess3 HMM.
 - Added tests that validate transition dynamics and observation sampling.
 - Added the TransformerLens-based transformer model and tests for activation shapes.
-- Implemented transformer training in `train.py`.
+- Implemented transformer training in `train_transformer.py`.
 - Improved logging for training runs.
 - Added KL divergence vs optimal belief state.
 

@@ -45,6 +45,7 @@ class BeliefStateTransformer(HookedTransformer):
         self,
         tokens: Int[torch.Tensor, "batch pos"],
         resid_stage: Literal["pre", "mid", "post"] = "post",
+        layers: list[int] | None = None,
     ) -> Tuple[
         Float[torch.Tensor, "batch pos d_vocab"],
         Float[torch.Tensor, "layer batch pos d_model"],
@@ -56,8 +57,10 @@ class BeliefStateTransformer(HookedTransformer):
             "mid": "hook_resid_mid",
             "post": "hook_resid_post",
         }[resid_stage]
+        if layers is None:
+            layers = [self.cfg.n_layers - 1]
         activations = torch.stack(
-            [cache[f"blocks.{layer}.{hook_suffix}"] for layer in range(self.cfg.n_layers)],
+            [cache[f"blocks.{layer}.{hook_suffix}"] for layer in layers],
             dim=0,
         )
         return logits, activations

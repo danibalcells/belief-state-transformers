@@ -114,7 +114,7 @@ def main() -> None:
     torch.manual_seed(config.seed)
     device = torch.device(config.device)
     run_id = time.strftime("%Y%m%d_%H%M%S")
-    checkpoint_dir = Path("model_checkpoints") / run_id
+    checkpoint_dir = Path("outputs") / "transformer" / run_id
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     hmm = Mess3()
