@@ -6,9 +6,11 @@ dependencies = [
     "einops>=0.8.2",
     "ipython>=9.10.0",
     "matplotlib>=3.10.8",
+    "pyarrow==14.0.2",
     "pytest>=9.0.2",
     "torch>=2.10.0",
     "transformer-lens>=2.17.0",
+    "wandb==0.22.3",
 ]
 
 [tool.pytest.ini_options]
