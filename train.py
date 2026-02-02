@@ -24,6 +24,10 @@ class TrainConfig:
     seq_len: int
     epochs: int
     learning_rate: float
+    optimizer: str
+    adamw_weight_decay: float
+    adamw_beta1: float
+    adamw_beta2: float
     log_interval: int
     seed: int
     save_path: Optional[Path]
@@ -35,11 +39,19 @@ def parse_args() -> TrainConfig:
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--seq-len", type=int, default=10)
     parser.add_argument("--epochs", type=int, default=1_000_000)
-    parser.add_argument("--learning-rate", type=float, default=0.01)
+    parser.add_argument("--optimizer", type=str, choices=["adamw", "sgd"], default="adamw")
+    parser.add_argument("--learning-rate", type=float, default=None)
+    parser.add_argument("--adamw-weight-decay", type=float, default=0.01)
+    parser.add_argument("--adamw-beta1", type=float, default=0.9)
+    parser.add_argument("--adamw-beta2", type=float, default=0.999)
     parser.add_argument("--log-interval", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--save-path", type=str, default=None)
     args = parser.parse_args()
+
+    learning_rate = args.learning_rate
+    if learning_rate is None:
+        learning_rate = 3e-4 if args.optimizer == "adamw" else 0.01
 
     save_path = Path(args.save_path) if args.save_path is not None else None
     return TrainConfig(
@@ -47,7 +59,11 @@ def parse_args() -> TrainConfig:
         batch_size=args.batch_size,
         seq_len=args.seq_len,
         epochs=args.epochs,
-        learning_rate=args.learning_rate,
+        learning_rate=learning_rate,
+        optimizer=args.optimizer,
+        adamw_weight_decay=args.adamw_weight_decay,
+        adamw_beta1=args.adamw_beta1,
+        adamw_beta2=args.adamw_beta2,
         log_interval=args.log_interval,
         seed=args.seed,
         save_path=save_path,
@@ -84,13 +100,21 @@ def main() -> None:
         vocab_size=hmm.vocab_size,
         device=device,
     )
-    if config.seq_len != model.cfg.n_ctx:
-        raise ValueError(
-            f"seq_len must match model context length {model.cfg.n_ctx}, got {config.seq_len}"
-        )
+    # if config.seq_len != model.cfg.n_ctx:
+    #     raise ValueError(
+    #         f"seq_len must match model context length {model.cfg.n_ctx}, got {config.seq_len}"
+    #     )
 
     model.train()
-    optimizer = torch.optim.SGD(model.parameters(), lr=config.learning_rate)
+    if config.optimizer == "adamw":
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=config.learning_rate,
+            betas=(config.adamw_beta1, config.adamw_beta2),
+            weight_decay=config.adamw_weight_decay,
+        )
+    else:
+        optimizer = torch.optim.SGD(model.parameters(), lr=config.learning_rate)
     loss_fn = nn.CrossEntropyLoss()
     wandb.init(
         project="belief-state-transformers",
@@ -100,6 +124,10 @@ def main() -> None:
             "seq_len": config.seq_len,
             "epochs": config.epochs,
             "learning_rate": config.learning_rate,
+            "optimizer": config.optimizer,
+            "adamw_weight_decay": config.adamw_weight_decay,
+            "adamw_beta1": config.adamw_beta1,
+            "adamw_beta2": config.adamw_beta2,
             "seed": config.seed,
             "model_config": {
                 "n_layers": model.cfg.n_layers,
