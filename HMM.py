@@ -94,3 +94,39 @@ class Mess3:
 
         return seq, hidden
 
+    def belief_states(self, tokens: torch.Tensor) -> torch.Tensor:
+        if tokens.ndim != 2:
+            raise ValueError(f"tokens must have shape (batch, seq_len), got {tuple(tokens.shape)}")
+        batch_size = int(tokens.shape[0])
+        seq_len = int(tokens.shape[1])
+        if seq_len <= 0:
+            raise ValueError(f"seq_len must be positive, got {seq_len}")
+
+        device = tokens.device
+        eta = self._pi.to(device=device, dtype=torch.float64).expand(batch_size, 3).clone()
+        beliefs = torch.empty((batch_size, seq_len + 1, 3), dtype=torch.float64, device=device)
+        beliefs[:, 0, :] = eta
+
+        for t in range(seq_len):
+            x_t = tokens[:, t].to(torch.long)
+            t_x = self._t_x.index_select(0, x_t).to(device=device, dtype=torch.float64)
+            numer = torch.einsum("bi,bij->bj", eta, t_x)
+            denom = numer.sum(dim=-1, keepdim=True)
+            eta = numer / denom
+            beliefs[:, t + 1, :] = eta
+
+        return beliefs
+
+    def optimal_next_token_probs(self, tokens: torch.Tensor) -> torch.Tensor:
+        if tokens.ndim != 2:
+            raise ValueError(f"tokens must have shape (batch, seq_len), got {tuple(tokens.shape)}")
+        seq_len = int(tokens.shape[1])
+        if seq_len < 2:
+            raise ValueError(f"seq_len must be at least 2 to compute next-token probs, got {seq_len}")
+
+        beliefs = self.belief_states(tokens)
+        eta_pred = beliefs[:, 1:seq_len, :]
+        emit = self._t_x.to(device=tokens.device, dtype=torch.float64).sum(dim=-1)
+        probs = torch.einsum("bts,xs->btx", eta_pred, emit)
+        return probs
+
