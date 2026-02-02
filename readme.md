@@ -9,6 +9,8 @@ Progress so far:
 - Added tests that validate transition dynamics and observation sampling.
 - Added the TransformerLens-based transformer model and tests for activation shapes.
 - Implemented transformer training in `train_transformer.py`.
+- Implemented activation sampling in `sample_acts.py`.
+- Implemented linear probe training in `train_probe.py`.
 - Improved logging for training runs.
 - Added KL divergence vs optimal belief state.
 
@@ -17,7 +19,12 @@ Training experiments in progress:
 - Sequence length.
 - Training steps per sequence.
 
+Implementation notes:
+- `sample_acts.py` loads a trained checkpoint, samples HMM sequences, computes beliefs, and saves flattened activations plus belief targets to `outputs/datasets/<run_id>/dataset.pt`.
+- `train_probe.py` trains `probe.LinearProbe` on the saved dataset with an MSE loss, logs to Weights & Biases, and saves probe weights to `outputs/probes/<run_id>/probe.pt`.
+- The dataset file includes `acts`, `states`, `beliefs`, `seq_len`, `resid_stage`, `layers`, and `num_sequences`.
+
 Next steps:
 - Train the transformer on generated sequences.
-- Extract residual stream activations and fit a linear probe to evaluate whether the belief geometry is recovered.
+- Run `sample_acts.py` to build a probe dataset, then `train_probe.py` to evaluate recovered belief geometry.
 
