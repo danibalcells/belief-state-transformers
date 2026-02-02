@@ -8,9 +8,14 @@ Progress so far:
 - Implemented the Mess3 HMM.
 - Added tests that validate transition dynamics and observation sampling.
 - Added the TransformerLens-based transformer model and tests for activation shapes.
+- Implemented transformer training in `train.py`.
+
+Training experiments in progress:
+- Optimizer: AdamW vs SGD.
+- Sequence length.
+- Training steps per sequence.
 
 Next steps:
-- Implement a training pipeline for the transformer (data loading + optimization).
 - Train the transformer on generated sequences.
 - Extract residual stream activations and fit a linear probe to evaluate whether the belief geometry is recovered.
 
