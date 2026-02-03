@@ -13,6 +13,7 @@ from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from probe import LinearProbe
+from utils.simplex import project_3d_to_simplex2d
 
 
 DEFAULT_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -133,8 +134,10 @@ def main() -> None:
                 eval_loss += float(loss.item()) * batch_acts.shape[0]
                 eval_count += batch_acts.shape[0]
                 if eval_simplex_preds is None:
-                    eval_simplex_preds = probe.simplex(preds).detach().to(device="cpu")
-                    eval_simplex_targets = probe.simplex(batch_beliefs).detach().to(device="cpu")
+                    eval_simplex_preds = project_3d_to_simplex2d(preds).detach().to(device="cpu")
+                    eval_simplex_targets = project_3d_to_simplex2d(batch_beliefs).detach().to(
+                        device="cpu"
+                    )
                     eval_labels = batch_beliefs.detach().argmax(dim=-1).to(device="cpu")
 
         avg_train = train_loss / max(train_count, 1)

@@ -108,6 +108,7 @@ def main() -> None:
     acts_list: list[torch.Tensor] = []
     states_list: list[torch.Tensor] = []
     beliefs_list: list[torch.Tensor] = []
+    tokens_list: list[torch.Tensor] = []
 
     num_remaining = config.num_sequences
     batch_index = 0
@@ -151,18 +152,21 @@ def main() -> None:
             acts_list.append(acts)
             states_list.append(states)
             beliefs_list.append(beliefs)
+            tokens_list.append(tokens.cpu())
             num_remaining -= batch_size
             batch_index += 1
 
     acts_all = torch.cat(acts_list, dim=0)
     states_all = torch.cat(states_list, dim=0)
     beliefs_all = torch.cat(beliefs_list, dim=0)
+    tokens_all = torch.cat(tokens_list, dim=0)
     print(
         "final_shapes",
         {
             "acts": tuple(acts_all.shape),
             "states": tuple(states_all.shape),
             "beliefs": tuple(beliefs_all.shape),
+            "tokens": tuple(tokens_all.shape),
         },
     )
 
@@ -176,6 +180,7 @@ def main() -> None:
             "acts": acts_all,
             "states": states_all,
             "beliefs": beliefs_all,
+            "tokens": tokens_all,
             "seq_len": seq_len,
             "resid_stage": config.resid_stage,
             "layers": layers if layers is not None else [model.cfg.n_layers - 1],
