@@ -7,6 +7,7 @@ from torch import nn
 
 from HMM import Mess3
 from transformer import BeliefStateTransformer
+from utils.simplex import project_3d_to_simplex2d
 
 
 class LinearProbe(nn.Module):
@@ -36,3 +37,40 @@ class LinearProbe(nn.Module):
         x = (outputs * u).sum(dim=-1)
         y = (outputs * v).sum(dim=-1)
         return torch.stack([x, y], dim=-1)
+
+
+class Autoencoder(nn.Module):
+    def __init__(
+        self,
+        d_in: int,
+        hidden_dim: int = 2,
+        bias: bool = True,
+    ) -> None:
+        super().__init__()
+        self.encoder = nn.Sequential(
+            nn.Linear(d_in, hidden_dim, bias=bias),
+            nn.ReLU(),
+        )
+        self.decoder = nn.Linear(hidden_dim, d_in, bias=bias)
+
+    @classmethod
+    def from_transformer(
+        cls,
+        transformer: BeliefStateTransformer,
+        hidden_dim: int = 2,
+        bias: bool = True,
+    ) -> "Autoencoder":
+        return cls(d_in=transformer.cfg.d_model, hidden_dim=hidden_dim, bias=bias)
+
+    def encode(self, x: torch.Tensor) -> torch.Tensor:
+        return self.encoder(x)
+
+    def decode(self, z: torch.Tensor) -> torch.Tensor:
+        return self.decoder(z)
+
+    def decode_from_belief(self, beliefs: torch.Tensor) -> torch.Tensor:
+        latents = project_3d_to_simplex2d(beliefs)
+        return self.decode(latents)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.decode(self.encode(x))
