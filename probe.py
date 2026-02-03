@@ -45,12 +45,16 @@ class Autoencoder(nn.Module):
         d_in: int,
         hidden_dim: int = 2,
         bias: bool = True,
+        use_activation: bool = True,
     ) -> None:
         super().__init__()
-        self.encoder = nn.Sequential(
-            nn.Linear(d_in, hidden_dim, bias=bias),
-            nn.ReLU(),
-        )
+        if use_activation:
+            self.encoder = nn.Sequential(
+                nn.Linear(d_in, hidden_dim, bias=bias),
+                nn.ReLU(),
+            )
+        else:
+            self.encoder = nn.Linear(d_in, hidden_dim, bias=bias)
         self.decoder = nn.Linear(hidden_dim, d_in, bias=bias)
 
     @classmethod
@@ -59,8 +63,14 @@ class Autoencoder(nn.Module):
         transformer: BeliefStateTransformer,
         hidden_dim: int = 2,
         bias: bool = True,
+        use_activation: bool = True,
     ) -> "Autoencoder":
-        return cls(d_in=transformer.cfg.d_model, hidden_dim=hidden_dim, bias=bias)
+        return cls(
+            d_in=transformer.cfg.d_model,
+            hidden_dim=hidden_dim,
+            bias=bias,
+            use_activation=use_activation,
+        )
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
         return self.encoder(x)

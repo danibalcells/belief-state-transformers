@@ -32,6 +32,7 @@ class AutoencoderTrainConfig:
     lambda_recon: float
     lambda_geometry: float
     output_dir: Optional[Path]
+    use_activation: bool = True
 
 
 class AutoencoderTrainer:
@@ -62,7 +63,12 @@ class AutoencoderTrainer:
         )
         self.eval_loader = DataLoader(eval_dataset, batch_size=config.batch_size, shuffle=False)
 
-        self.model = Autoencoder(d_in=acts.shape[1], hidden_dim=2, bias=True).to(self.device)
+        self.model = Autoencoder(
+            d_in=acts.shape[1],
+            hidden_dim=2,
+            bias=True,
+            use_activation=config.use_activation,
+        ).to(self.device)
         self.optimizer = torch.optim.AdamW(
             self.model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay
         )
@@ -83,6 +89,7 @@ class AutoencoderTrainer:
                 "hidden_dim": 2,
                 "lambda_recon": config.lambda_recon,
                 "lambda_geometry": config.lambda_geometry,
+                "use_activation": config.use_activation,
             },
         )
 
@@ -216,6 +223,7 @@ def parse_args() -> AutoencoderTrainConfig:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--lambda-recon", type=float, default=1.0)
     parser.add_argument("--lambda-geometry", type=float, default=1.0)
+    parser.add_argument("--no-activation", action="store_false", dest="use_activation")
     parser.add_argument("--output-dir", type=str, default=None)
     args = parser.parse_args()
     return AutoencoderTrainConfig(
@@ -229,6 +237,7 @@ def parse_args() -> AutoencoderTrainConfig:
         seed=args.seed,
         lambda_recon=args.lambda_recon,
         lambda_geometry=args.lambda_geometry,
+        use_activation=args.use_activation,
         output_dir=Path(args.output_dir) if args.output_dir is not None else None,
     )
 
