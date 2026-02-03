@@ -4,6 +4,8 @@ version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
     "einops>=0.8.2",
+    "ipykernel>=7.1.0",
+    "ipympl>=0.10.0",
     "ipython>=9.10.0",
     "matplotlib>=3.10.8",
     "pyarrow==14.0.2",
