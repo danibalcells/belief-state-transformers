@@ -42,6 +42,8 @@ class VaeTrainer:
         torch.manual_seed(config.seed)
         self.device = torch.device(config.device)
         self.run_id = time.strftime("%Y%m%d_%H%M%S")
+        self.output_dir = config.output_dir or (Path("outputs") / "vaes" / self.run_id)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
 
         dataset_obj = torch.load(config.dataset_path, map_location="cpu")
         acts = dataset_obj["acts"].to(dtype=torch.float32)
@@ -212,9 +214,20 @@ class VaeTrainer:
 
             wandb.log(log_payload, step=epoch)
 
-        output_dir = self.config.output_dir or (Path("outputs") / "vaes" / self.run_id)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = output_dir / "vae.pt"
+            checkpoint_path = self.output_dir / "checkpoint.pt"
+            torch.save(
+                {
+                    "state_dict": self.model.state_dict(),
+                    "optimizer_state_dict": self.optimizer.state_dict(),
+                    "epoch": epoch,
+                    "d_in": self.model.decoder.out_features,
+                    "latent_dim": 2,
+                    "dataset_path": str(self.config.dataset_path),
+                },
+                checkpoint_path,
+            )
+
+        output_path = self.output_dir / "vae.pt"
         torch.save(
             {
                 "state_dict": self.model.state_dict(),
