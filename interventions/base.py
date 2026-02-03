@@ -123,6 +123,12 @@ class BaseIntervention:
         kl = (optimal_probs * (log_optimal - log_probs)).sum(dim=-1)
         return float(kl.mean().item())
 
+    def _accuracy_from_logits(self, logits: torch.Tensor, tokens: torch.Tensor) -> float:
+        preds = logits[:, :-1, :].argmax(dim=-1)
+        targets = tokens[:, 1:]
+        correct = (preds == targets).to(dtype=torch.float32)
+        return float(correct.mean().item())
+
     def _run_with_hooks(self, hooks: list[tuple[str, HookFn]]) -> torch.Tensor:
         tokens = self._dataset_tokens()
         with torch.no_grad():

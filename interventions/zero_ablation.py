@@ -14,10 +14,11 @@ from interventions.base import BaseIntervention, BaseInterventionResult, HookFn
 class ZeroAblationResult(BaseInterventionResult):
     lambdas: list[float]
     mean_kls: list[float] | list[list[float]]
+    mean_accuracies: list[float] | list[list[float]]
 
 
 class ZeroAblationIntervention(BaseIntervention):
-    def zero_ablation(self, dimension: int, lambda_value: float) -> float:
+    def zero_ablation(self, dimension: int, lambda_value: float) -> tuple[float, float]:
         vectors = self._normalized_vectors([dimension])
         return self._run_intervention(vectors, lambda_value)
 
@@ -31,20 +32,39 @@ class ZeroAblationIntervention(BaseIntervention):
         if mode == "single":
             if dimension is None:
                 raise ValueError("dimension is required when mode='single'")
-            mean_kls = [self.zero_ablation(dimension, lam) for lam in lambdas]
-            return ZeroAblationResult(lambdas=lambdas, mean_kls=mean_kls)
+            metrics = [self.zero_ablation(dimension, lam) for lam in lambdas]
+            mean_kls = [metric[0] for metric in metrics]
+            mean_accs = [metric[1] for metric in metrics]
+            return ZeroAblationResult(
+                lambdas=lambdas,
+                mean_kls=mean_kls,
+                mean_accuracies=mean_accs,
+            )
         if mode == "all":
             vectors = self._normalized_vectors(list(range(self._probe_dims())))
-            mean_kls = [self._run_intervention(vectors, lam) for lam in lambdas]
-            return ZeroAblationResult(lambdas=lambdas, mean_kls=mean_kls)
+            metrics = [self._run_intervention(vectors, lam) for lam in lambdas]
+            mean_kls = [metric[0] for metric in metrics]
+            mean_accs = [metric[1] for metric in metrics]
+            return ZeroAblationResult(
+                lambdas=lambdas,
+                mean_kls=mean_kls,
+                mean_accuracies=mean_accs,
+            )
         if mode == "separate":
             mean_kls = []
+            mean_accs = []
             for dim in range(self._probe_dims()):
-                mean_kls.append([self.zero_ablation(dim, lam) for lam in lambdas])
-            return ZeroAblationResult(lambdas=lambdas, mean_kls=mean_kls)
+                metrics = [self.zero_ablation(dim, lam) for lam in lambdas]
+                mean_kls.append([metric[0] for metric in metrics])
+                mean_accs.append([metric[1] for metric in metrics])
+            return ZeroAblationResult(
+                lambdas=lambdas,
+                mean_kls=mean_kls,
+                mean_accuracies=mean_accs,
+            )
         raise ValueError(f"unsupported mode: {mode}")
 
-    def _run_intervention(self, vectors: torch.Tensor, lambda_value: float) -> float:
+    def _run_intervention(self, vectors: torch.Tensor, lambda_value: float) -> tuple[float, float]:
         hook_suffix = self._dataset_hook_suffix()
         layers = self._dataset_layers()
 
@@ -59,4 +79,6 @@ class ZeroAblationIntervention(BaseIntervention):
         ]
         logits = self._run_with_hooks(hooks)
         tokens = self._dataset_tokens()
-        return self._mean_kl_from_logits(logits, tokens)
+        mean_kl = self._mean_kl_from_logits(logits, tokens)
+        mean_acc = self._accuracy_from_logits(logits, tokens)
+        return mean_kl, mean_acc

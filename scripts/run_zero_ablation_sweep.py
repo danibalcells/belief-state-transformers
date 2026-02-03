@@ -56,20 +56,38 @@ def main() -> None:
         dimension=args.dimension, mode=args.mode, step=args.step
     )
     all_result = intervention.sweep_lambda(mode="all", step=args.step)
-    print({"lambdas": result.lambdas, "mean_kls": result.mean_kls})
+    print(
+        {
+            "lambdas": result.lambdas,
+            "mean_kls": result.mean_kls,
+            "mean_accuracies": result.mean_accuracies,
+        }
+    )
     lambdas = result.lambdas
-    fig, axes = plt.subplots(1, 4, figsize=(12, 3), constrained_layout=True, sharex=True, sharey=True)
+    fig, axes = plt.subplots(
+        2,
+        4,
+        figsize=(12, 5),
+        constrained_layout=True,
+        sharex=True,
+        sharey="row",
+    )
     if isinstance(result.mean_kls[0], list):
         for idx, kls in enumerate(result.mean_kls):
-            axes[idx].plot(lambdas, kls)
-            axes[idx].set_title(f"dim {idx}")
+            axes[0, idx].plot(lambdas, kls)
+            axes[0, idx].set_title(f"dim {idx}")
+        for idx, accs in enumerate(result.mean_accuracies):
+            axes[1, idx].plot(lambdas, accs)
     else:
-        axes[0].plot(lambdas, result.mean_kls)
-        axes[0].set_title("dim 0")
-    axes[3].plot(lambdas, all_result.mean_kls)
-    axes[3].set_title("all")
-    axes[0].set_ylabel("KL")
-    for axis in axes:
+        axes[0, 0].plot(lambdas, result.mean_kls)
+        axes[0, 0].set_title("dim 0")
+        axes[1, 0].plot(lambdas, result.mean_accuracies)
+    axes[0, 3].plot(lambdas, all_result.mean_kls)
+    axes[0, 3].set_title("all")
+    axes[1, 3].plot(lambdas, all_result.mean_accuracies)
+    axes[0, 0].set_ylabel("KL")
+    axes[1, 0].set_ylabel("Accuracy")
+    for axis in axes[1]:
         axis.set_xlabel("lambda")
     output_dir = Path("images")
     output_dir.mkdir(parents=True, exist_ok=True)
