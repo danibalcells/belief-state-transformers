@@ -84,3 +84,65 @@ class Autoencoder(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.decode(self.encode(x))
+
+
+class VariationalAutoencoder(nn.Module):
+    def __init__(
+        self,
+        d_in: int,
+        latent_dim: int = 2,
+        bias: bool = True,
+        use_activation: bool = True,
+    ) -> None:
+        super().__init__()
+        if use_activation:
+            self.encoder = nn.Sequential(
+                nn.Linear(d_in, latent_dim, bias=bias),
+                nn.ReLU(),
+            )
+        else:
+            self.encoder = nn.Linear(d_in, latent_dim, bias=bias)
+        self.mu_layer = nn.Linear(latent_dim, latent_dim, bias=bias)
+        self.logvar_layer = nn.Linear(latent_dim, latent_dim, bias=bias)
+        self.decoder = nn.Linear(latent_dim, d_in, bias=bias)
+
+    @classmethod
+    def from_transformer(
+        cls,
+        transformer: BeliefStateTransformer,
+        latent_dim: int = 2,
+        bias: bool = True,
+        use_activation: bool = True,
+    ) -> "VariationalAutoencoder":
+        return cls(
+            d_in=transformer.cfg.d_model,
+            latent_dim=latent_dim,
+            bias=bias,
+            use_activation=use_activation,
+        )
+
+    def encode(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        hidden = self.encoder(x)
+        mu = self.mu_layer(hidden)
+        logvar = self.logvar_layer(hidden)
+        return mu, logvar
+
+    def reparameterize(self, mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return mu + eps * std
+
+    def decode(self, z: torch.Tensor) -> torch.Tensor:
+        return self.decoder(z)
+
+    def decode_from_belief(self, beliefs: torch.Tensor) -> torch.Tensor:
+        latents = project_3d_to_simplex2d(beliefs)
+        return self.decode(latents)
+
+    def forward(
+        self, x: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        mu, logvar = self.encode(x)
+        z = self.reparameterize(mu, logvar)
+        decoded = self.decode(z)
+        return decoded, mu, logvar
