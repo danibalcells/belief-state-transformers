@@ -104,8 +104,7 @@ class Mess3:
 
         device = tokens.device
         eta = self._pi.to(device=device, dtype=torch.float64).expand(batch_size, 3).clone()
-        beliefs = torch.empty((batch_size, seq_len + 1, 3), dtype=torch.float64, device=device)
-        beliefs[:, 0, :] = eta
+        beliefs = torch.empty((batch_size, seq_len, 3), dtype=torch.float64, device=device)
 
         for t in range(seq_len):
             x_t = tokens[:, t].to(torch.long)
@@ -113,7 +112,7 @@ class Mess3:
             numer = torch.einsum("bi,bij->bj", eta, t_x)
             denom = numer.sum(dim=-1, keepdim=True)
             eta = numer / denom
-            beliefs[:, t + 1, :] = eta
+            beliefs[:, t, :] = eta
 
         return beliefs
 
@@ -125,9 +124,8 @@ class Mess3:
             raise ValueError(f"seq_len must be at least 2 to compute next-token probs, got {seq_len}")
 
         beliefs = self.belief_states(tokens)
-        eta_pred = beliefs[:, 1:seq_len, :]
         emit = self._t_x.to(device=tokens.device, dtype=torch.float64).sum(dim=-1)
-        probs = torch.einsum("bts,xs->btx", eta_pred, emit)
+        probs = torch.einsum("bts,xs->btx", beliefs, emit)
         return probs
 
     def optimal_next_token_probs_from_beliefs(self, beliefs: torch.Tensor) -> torch.Tensor:
