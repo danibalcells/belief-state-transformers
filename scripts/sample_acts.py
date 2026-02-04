@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,6 +9,8 @@ from typing import Literal, Optional
 
 import matplotlib.pyplot as plt
 import torch
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from HMM import Mess3
 from transformer import BeliefStateTransformer

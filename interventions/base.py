@@ -8,10 +8,10 @@ from typing import Callable, Sequence, cast
 import torch
 
 from HMM import Mess3
-from probe import LinearProbe
+from probes.linear import LinearProbe
 from transformer import BeliefStateTransformer
 
-HookFn = Callable[[torch.Tensor, object], torch.Tensor]
+HookFn = Callable[..., torch.Tensor]
 
 
 @dataclass(frozen=True)
@@ -23,8 +23,8 @@ class BaseIntervention:
     def __init__(
         self,
         model_checkpoint_path: str | Path,
-        probe_checkpoint_path: str | Path,
-        dataset_path: str | Path,
+        probe_checkpoint_path: str | Path | None,
+        dataset_path: str | Path | None,
         fallback_batch_size: int = 128,
         device: str | torch.device | None = None,
     ) -> None:
@@ -38,7 +38,9 @@ class BaseIntervention:
             else ("cuda" if torch.cuda.is_available() else "cpu")
         )
         self.device: torch.device = resolved_device
-        self.dataset: dict[str, object] = torch.load(dataset_path, map_location="cpu")
+        self.dataset: dict[str, object] = {}
+        if dataset_path is not None:
+            self.dataset = torch.load(dataset_path, map_location="cpu")
         self.hmm: Mess3 = Mess3()
         self.hmm._t_x = self.hmm._t_x.to(self.device)
         self.hmm._t = self.hmm._t.to(self.device)
@@ -55,27 +57,33 @@ class BaseIntervention:
         self.transformer: BeliefStateTransformer = model
         self.transfromers: BeliefStateTransformer = model
 
-        probe_state = torch.load(probe_checkpoint_path, map_location="cpu")
-        d_in = int(probe_state["d_in"])
-        d_out = int(probe_state["d_out"])
-        probe = LinearProbe(d_in=d_in, d_out=d_out, bias=True)
-        probe.load_state_dict(probe_state["state_dict"])
-        probe.to(self.device)
-        probe.eval()
-        self.linear_probe: LinearProbe = probe
+        self.linear_probe: LinearProbe | None = None
+        if probe_checkpoint_path is not None:
+            probe_state = torch.load(probe_checkpoint_path, map_location="cpu")
+            d_in = int(probe_state["d_in"])
+            d_out = int(probe_state["d_out"])
+            probe = LinearProbe(transformer=None, d_in=d_in, d_out=d_out, bias=True)
+            probe.load_state_dict(probe_state["state_dict"])
+            probe.to(self.device)
+            probe.eval()
+            self.linear_probe = probe
         self.logger.info(
             "loaded_intervention",
             extra={
                 "device": str(self.device),
                 "dataset_keys": list(self.dataset.keys()),
-                "probe_dims": self._probe_dims(),
+                "probe_dims": self._probe_dims() if self.linear_probe is not None else None,
             },
         )
 
     def _probe_dims(self) -> int:
+        if self.linear_probe is None:
+            raise ValueError("linear_probe is not initialized")
         return int(self.linear_probe.linear.weight.shape[0])
 
     def _normalized_vectors(self, dims: Sequence[int]) -> torch.Tensor:
+        if self.linear_probe is None:
+            raise ValueError("linear_probe is not initialized")
         weight = self.linear_probe.linear.weight.detach().to(device=self.device, dtype=torch.float32)
         vectors = weight[torch.tensor(list(dims), dtype=torch.long, device=self.device)]
         norms = vectors.norm(dim=-1, keepdim=True).clamp_min(1e-8)
@@ -91,9 +99,11 @@ class BaseIntervention:
         return lambdas
 
     def _dataset_tokens(self) -> torch.Tensor:
+        if not self.dataset:
+            raise ValueError("dataset is not initialized")
         if "tokens" not in self.dataset:
-            num_sequences = int(self.dataset["num_sequences"])
-            seq_len = int(self.dataset["seq_len"])
+            num_sequences = int(cast(int, self.dataset["num_sequences"]))
+            seq_len = int(cast(int, self.dataset["seq_len"]))
             self.logger.warning(
                 "tokens_missing_fallback_sampling",
                 extra={
@@ -131,17 +141,22 @@ class BaseIntervention:
 
     def _run_with_hooks(self, hooks: list[tuple[str, HookFn]]) -> torch.Tensor:
         tokens = self._dataset_tokens()
+        hooks_cast = cast(list[tuple[str | Callable[..., object], Callable[..., object]]], hooks)
         with torch.no_grad():
             logits = self.transformer.run_with_hooks(
-                tokens, return_type="logits", fwd_hooks=hooks
+                tokens, return_type="logits", fwd_hooks=hooks_cast
             )
         return torch.as_tensor(logits)
 
     def _dataset_hook_suffix(self) -> str:
+        if not self.dataset:
+            raise ValueError("dataset is not initialized")
         resid_stage = str(self.dataset["resid_stage"])
         return {"pre": "hook_resid_pre", "mid": "hook_resid_mid", "post": "hook_resid_post"}[
             resid_stage
         ]
 
     def _dataset_layers(self) -> list[int]:
+        if not self.dataset:
+            raise ValueError("dataset is not initialized")
         return cast(list[int], self.dataset["layers"])

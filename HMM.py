@@ -130,3 +130,13 @@ class Mess3:
         probs = torch.einsum("bts,xs->btx", eta_pred, emit)
         return probs
 
+    def optimal_next_token_probs_from_beliefs(self, beliefs: torch.Tensor) -> torch.Tensor:
+        if beliefs.ndim not in (2, 3):
+            raise ValueError(
+                f"beliefs must have shape (batch, states) or (batch, pos, states), got {tuple(beliefs.shape)}"
+            )
+        emit = self._t_x.to(device=beliefs.device, dtype=torch.float64).sum(dim=-1)
+        if beliefs.ndim == 2:
+            return torch.einsum("bs,xs->bx", beliefs.to(dtype=torch.float64), emit)
+        return torch.einsum("bts,xs->btx", beliefs.to(dtype=torch.float64), emit)
+

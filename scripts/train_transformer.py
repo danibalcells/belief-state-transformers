@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,6 +10,8 @@ from typing import Optional
 import torch
 import wandb
 from torch import nn
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from HMM import Mess3
 from transformer import BeliefStateTransformer
@@ -127,10 +130,6 @@ def main() -> None:
         vocab_size=hmm.vocab_size,
         device=device,
     )
-    # if config.seq_len != model.cfg.n_ctx:
-    #     raise ValueError(
-    #         f"seq_len must match model context length {model.cfg.n_ctx}, got {config.seq_len}"
-    #     )
 
     model.train()
     if config.optimizer == "adamw":

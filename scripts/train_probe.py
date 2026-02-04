@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,7 +13,9 @@ import wandb
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from probe import LinearProbe
+sys.path.append(str(Path(__file__).resolve().parents[1]))
+
+from probes.linear import LinearProbe
 from utils.simplex import project_3d_to_simplex2d
 
 
@@ -82,7 +85,9 @@ def main() -> None:
     train_loader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True)
     eval_loader = DataLoader(eval_dataset, batch_size=config.batch_size, shuffle=False)
 
-    probe = LinearProbe(d_in=acts.shape[1], d_out=beliefs.shape[1], bias=True).to(device)
+    probe = LinearProbe(
+        transformer=None, d_in=acts.shape[1], d_out=beliefs.shape[1], bias=True
+    ).to(device)
     optimizer = torch.optim.AdamW(
         probe.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay
     )
@@ -143,7 +148,9 @@ def main() -> None:
         avg_train = train_loss / max(train_count, 1)
         avg_eval = eval_loss / max(eval_count, 1)
         elapsed_s = time.time() - start_time
-        print(f"epoch={epoch} train_mse={avg_train:.6f} eval_mse={avg_eval:.6f} elapsed_s={elapsed_s:.2f}")
+        print(
+            f"epoch={epoch} train_mse={avg_train:.6f} eval_mse={avg_eval:.6f} elapsed_s={elapsed_s:.2f}"
+        )
         log_payload: dict[str, object] = {
             "train/mse": avg_train,
             "eval/mse": avg_eval,

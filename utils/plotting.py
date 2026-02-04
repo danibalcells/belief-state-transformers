@@ -8,7 +8,7 @@ import torch
 from mpl_toolkits.mplot3d import Axes3D
 
 from HMM import Mess3
-from probe import LinearProbe
+from probes.linear import LinearProbe
 from utils.simplex import project_3d_to_simplex2d
 
 
@@ -44,7 +44,9 @@ def belief_probe_comparison_plot(
         )
 
     ckpt = torch.load(probe_path, map_location=device)
-    probe = LinearProbe(d_in=ckpt["d_in"], d_out=ckpt["d_out"], bias=True).to(device)
+    probe = LinearProbe(
+        transformer=None, d_in=ckpt["d_in"], d_out=ckpt["d_out"], bias=True
+    ).to(device)
     probe.load_state_dict(ckpt["state_dict"])
     probe.eval()
 
@@ -110,7 +112,9 @@ def probe_outputs_3d_plot(
     acts = data["acts"].to(dtype=torch.float32)
 
     ckpt = torch.load(probe_path, map_location=device)
-    probe = LinearProbe(d_in=ckpt["d_in"], d_out=ckpt["d_out"], bias=True).to(device)
+    probe = LinearProbe(
+        transformer=None, d_in=ckpt["d_in"], d_out=ckpt["d_out"], bias=True
+    ).to(device)
     probe.load_state_dict(ckpt["state_dict"])
     probe.eval()
 
@@ -157,7 +161,9 @@ def probe_outputs_3d_four_views(
     acts = data["acts"].to(dtype=torch.float32)
 
     ckpt = torch.load(probe_path, map_location=device)
-    probe = LinearProbe(d_in=ckpt["d_in"], d_out=ckpt["d_out"], bias=True).to(device)
+    probe = LinearProbe(
+        transformer=None, d_in=ckpt["d_in"], d_out=ckpt["d_out"], bias=True
+    ).to(device)
     probe.load_state_dict(ckpt["state_dict"])
     probe.eval()
 
