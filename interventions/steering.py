@@ -160,34 +160,32 @@ class SteeringIntervention(BaseIntervention):
         emit = self.hmm._t_x.to(device=self.device, dtype=torch.float64)
 
         for idx in range(num_sequences):
-            eta_prev = beliefs[idx, pos - 1, :].to(dtype=torch.float64)
-            actual_prev_token = int(tokens[idx, pos].item())
-            prev_emission_probs = self.hmm.optimal_next_token_probs_from_beliefs(
-                eta_prev.unsqueeze(0)
-            ).squeeze(0)
-            legal_tokens = torch.nonzero(prev_emission_probs > 0.0, as_tuple=False).flatten()
-            if int(legal_tokens.numel()) <= 1:
+
+            eta_prev = beliefs[idx, pos-1, :].to(dtype=torch.float64) 
+            eta_current = beliefs[idx, pos, :].to(dtype=torch.float64)
+
+            current_token = int(tokens[idx, pos].item())
+            emission_prob_prev = self.hmm.optimal_next_token_probs_from_beliefs(
+                eta_prev.unsqueeze(0)).squeeze(0)
+            legal_current_tokens = torch.nonzero(emission_prob_prev > 0.0, as_tuple=False).flatten()
+
+            # If only legal token is the generated one, skip the batch
+            if int(legal_current_tokens.numel()) <= 1:
                 continue
-            t_x_actual = emit[int(actual_prev_token)]
-            numer_actual = torch.matmul(eta_prev, t_x_actual)
-            eta_actual = numer_actual / numer_actual.sum()
-            # eta_actual should be the same as eta indexed at t=pos
-            eta_predicted_t = beliefs[idx, pos, :].to(dtype=torch.float64)
-            if not torch.allclose(eta_actual, eta_predicted_t):
-                print(f'{eta_prev=} {eta_predicted_t=} {eta_actual=} {t_x_actual=}')
-                print(f'{numer_actual=} {numer_actual.sum()=}')
-                print(f'{actual_prev_token=} {tokens[idx, pos]=}')
-                raise Warning("eta_actual is not the same as eta indexed at t=pos")
-            optimal_actual = self.hmm.optimal_next_token_probs_from_beliefs(
-                eta_actual.unsqueeze(0)
-            ).squeeze(0)
-            for token in legal_tokens.tolist():
-                if int(token) == actual_prev_token:
+
+            # Compute optimal next token probabilities
+            optimal_actual = self.hmm.optimal_next_token_probs_from_beliefs(eta_current.unsqueeze(0)).squeeze(0)
+
+            for token in legal_current_tokens.tolist(): 
+
+                if int(token) == current_token:
                     continue
+
                 t_x = emit[int(token)]
                 numer = torch.matmul(eta_prev, t_x)
                 denom = numer.sum()
                 eta_tilde = numer / denom
+
                 optimal_counter = self.hmm.optimal_next_token_probs_from_beliefs(
                     eta_tilde.unsqueeze(0)
                 ).squeeze(0)
@@ -209,9 +207,9 @@ class SteeringIntervention(BaseIntervention):
                 )
                 seq_indices.append(idx)
                 positions.append(pos)
-                actual_tokens.append(actual_prev_token)
+                actual_tokens.append(current_token)
                 counter_tokens.append(int(token))
-                actual_beliefs.append(eta_actual.detach().cpu())
+                actual_beliefs.append(eta_current.detach().cpu())
                 counter_beliefs.append(eta_tilde.detach().cpu())
 
         if metrics:

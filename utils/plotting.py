@@ -32,7 +32,7 @@ def belief_probe_comparison_plot(
         tokens = data["tokens"]
         hmm = Mess3()
         optimal_beliefs = hmm.belief_states(tokens)
-        optimal_beliefs = optimal_beliefs[:, 1:, :].reshape(-1, optimal_beliefs.shape[-1]).to(
+        optimal_beliefs = optimal_beliefs.reshape(-1, optimal_beliefs.shape[-1]).to(
             dtype=torch.float32
         )
     else:
