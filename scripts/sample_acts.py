@@ -118,38 +118,19 @@ def main() -> None:
     with torch.no_grad():
         while num_remaining > 0:
             batch_size = min(config.batch_size, num_remaining)
-            tokens, hidden = hmm.generate_batch(batch_size=batch_size, seq_len=seq_len)
+            tokens, hidden = hmm.generate_batch(batch_size=batch_size, seq_len=seq_len) # (batch_size, seq_len) and (batch_size, seq_len +1)
             tokens = tokens.to(device)
             hidden = hidden.to(device)
-            beliefs = hmm.belief_states(tokens)
+            beliefs = hmm.belief_states(tokens) # shape (batch_size, seq_len, 3)
             _, activations = model.forward_with_residuals(
                 tokens, resid_stage=config.resid_stage, layers=layers
             )
-            acts = activations[0]
-            print(
-                "batch_shapes",
-                {
-                    "batch_index": batch_index,
-                    "tokens": tuple(tokens.shape),
-                    "hidden": tuple(hidden.shape),
-                    "beliefs": tuple(beliefs.shape),
-                    "activations": tuple(activations.shape),
-                    "acts": tuple(acts.shape),
-                },
-            )
+            acts = activations[0] # final shape (batch_size, seq_len, 3), og shape (n_layers, batch_size, seq_len, 3))
+
             acts = acts.reshape(-1, acts.shape[-1]).to(dtype=torch.float32, device="cpu")
-            states = hidden[:, 1:].reshape(-1).to(dtype=torch.long, device="cpu")
-            beliefs = beliefs[:, 1:, :].reshape(-1, beliefs.shape[-1]).to(
+            states = hidden[:, :-1].reshape(-1).to(dtype=torch.long, device="cpu")
+            beliefs = beliefs.reshape(-1, beliefs.shape[-1]).to(
                 dtype=torch.float32, device="cpu"
-            )
-            print(
-                "batch_flat_shapes",
-                {
-                    "batch_index": batch_index,
-                    "acts": tuple(acts.shape),
-                    "states": tuple(states.shape),
-                    "beliefs": tuple(beliefs.shape),
-                },
             )
 
             acts_list.append(acts)
@@ -163,15 +144,6 @@ def main() -> None:
     states_all = torch.cat(states_list, dim=0)
     beliefs_all = torch.cat(beliefs_list, dim=0)
     tokens_all = torch.cat(tokens_list, dim=0)
-    print(
-        "final_shapes",
-        {
-            "acts": tuple(acts_all.shape),
-            "states": tuple(states_all.shape),
-            "beliefs": tuple(beliefs_all.shape),
-            "tokens": tuple(tokens_all.shape),
-        },
-    )
 
     run_id = time.strftime("%Y%m%d_%H%M%S")
     output_dir = config.output_dir or (Path("outputs") / "datasets" / run_id)
