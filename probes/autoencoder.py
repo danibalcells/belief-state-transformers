@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 from torch import nn
 
-from probes.base import SteerableProbe
+from probes.base import AdditiveSteerableProbe, SteerableProbe
 from transformer import BeliefStateTransformer
 from utils.simplex import project_3d_to_simplex2d
 
@@ -65,3 +65,7 @@ class Autoencoder(SteerableProbe):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.decode(self.encode(x))
+
+
+class AdditiveAutoencoder(AdditiveSteerableProbe, Autoencoder):
+    pass

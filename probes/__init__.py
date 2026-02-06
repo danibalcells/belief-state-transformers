@@ -1,11 +1,14 @@
-from probes.autoencoder import Autoencoder
-from probes.base import SteerableProbe
+from probes.autoencoder import AdditiveAutoencoder, Autoencoder
+from probes.base import AdditiveSteerableProbe, SteerableProbe
 from probes.linear import LinearProbe
-from probes.vae import VariationalAutoencoder
+from probes.vae import AdditiveVAE, VariationalAutoencoder
 
 __all__ = [
+    "AdditiveAutoencoder",
+    "AdditiveSteerableProbe",
+    "AdditiveVAE",
     "Autoencoder",
-    "SteerableProbe",
     "LinearProbe",
+    "SteerableProbe",
     "VariationalAutoencoder",
 ]

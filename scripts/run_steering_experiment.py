@@ -17,7 +17,7 @@ import torch
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from interventions.steering import SteeringIntervention
+from interventions.steering import AdditiveSteeringIntervention, SteeringIntervention
 
 DEFAULT_SEQ_LEN = 10
 
@@ -32,6 +32,8 @@ class SteeringArgs:
     output_dir: Path | None
     device: str | None
     seq_len: int = DEFAULT_SEQ_LEN
+    additive: bool = False
+    lambda_: float | None = None
 
 
 def _parse_position(value: str) -> int | Literal["last"]:
@@ -51,7 +53,13 @@ def parse_args() -> SteeringArgs:
     parser.add_argument("--layer", type=int, default=None)
     parser.add_argument("--output-dir", type=str, default=None)
     parser.add_argument("--device", type=str, default=None)
+    parser.add_argument("--additive", action="store_true")
+    parser.add_argument("--lambda", dest="lambda_", type=float, default=None)
     args = parser.parse_args()
+    if args.additive and args.lambda_ is None:
+        parser.error("--lambda is required when --additive is set")
+    if args.additive and args.lambda_ is not None and (args.lambda_ < 0 or args.lambda_ > 1):
+        parser.error("--lambda must be in [0, 1] when --additive is set")
     return SteeringArgs(
         model_checkpoint=Path(args.model_checkpoint),
         steerable_type=args.steerable_type,
@@ -62,10 +70,52 @@ def parse_args() -> SteeringArgs:
         layer=args.layer,
         output_dir=Path(args.output_dir) if args.output_dir is not None else None,
         device=args.device,
+        additive=args.additive,
+        lambda_=args.lambda_,
     )
 
 
-def _plot_steering(metrics: torch.Tensor, output_path: Path) -> None:
+def _plot_additive_steering(metrics: torch.Tensor, metadata: dict, output_path: Path) -> None:
+    seq_idx = metadata.get("sequence_index")
+    if isinstance(seq_idx, torch.Tensor):
+        metrics = _aggregate_metrics_by_sequence(metrics.detach().cpu(), seq_idx.cpu())
+
+    if metrics.numel() == 0:
+        fig, ax = plt.subplots(figsize=(6, 4), constrained_layout=True)
+        ax.set_ylabel("KL divergence")
+        fig.savefig(output_path, dpi=300)
+        plt.close(fig)
+        return
+
+    values = metrics.detach().cpu().numpy()
+    kl_actual = values[:, 0]
+    kl_counter = values[:, 1]
+
+    fig, ax = plt.subplots(figsize=(6, 4), constrained_layout=True)
+    ax.scatter(kl_actual, kl_counter, alpha=0.25, s=8)
+    ax.set_xlabel("KL(optimal actual || steered pred)")
+    ax.set_ylabel("KL(optimal counterfactual || steered pred)")
+    ax.axline((0, 0), slope=1, color="gray", linestyle="--", alpha=0.5)
+    fig.savefig(output_path, dpi=300)
+    plt.close(fig)
+
+
+def _aggregate_metrics_by_sequence(metrics: torch.Tensor, sequence_index: torch.Tensor) -> torch.Tensor:
+    _, inverse = torch.unique(sequence_index, return_inverse=True)
+    n = inverse.max().item() + 1
+    counts = torch.bincount(inverse, minlength=n).to(metrics.dtype)
+    agg = torch.zeros(n, metrics.shape[1], dtype=metrics.dtype, device=metrics.device)
+    for c in range(metrics.shape[1]):
+        agg[:, c].scatter_add_(0, inverse, metrics[:, c])
+    agg /= counts.unsqueeze(1)
+    return agg
+
+
+def _plot_steering(metrics: torch.Tensor, metadata: dict, output_path: Path) -> None:
+    seq_idx = metadata.get("sequence_index")
+    if isinstance(seq_idx, torch.Tensor):
+        metrics = _aggregate_metrics_by_sequence(metrics.detach().cpu(), seq_idx.cpu())
+
     if metrics.numel() == 0:
         fig, ax = plt.subplots(figsize=(6, 4), constrained_layout=True)
         ax.set_xticks([0, 1])
@@ -84,10 +134,10 @@ def _plot_steering(metrics: torch.Tensor, output_path: Path) -> None:
     x1 = np.ones_like(actual_no)
 
     fig, ax = plt.subplots(figsize=(7, 4), constrained_layout=True)
-    ax.scatter(x0, actual_no, color="red", alpha=0.25, s=8)
-    ax.scatter(x1, actual_yes, color="red", alpha=0.25, s=8)
-    ax.scatter(x0, counter_no, color="blue", alpha=0.25, s=8)
-    ax.scatter(x1, counter_yes, color="blue", alpha=0.25, s=8)
+    ax.scatter(x0, actual_no, color="red", alpha=0.1, s=8)
+    ax.scatter(x1, actual_yes, color="red", alpha=0.1, s=8)
+    ax.scatter(x0, counter_no, color="blue", alpha=0.1, s=8)
+    ax.scatter(x1, counter_yes, color="blue", alpha=0.1, s=8)
 
     actual_segments = np.stack([np.stack([x0, actual_no], axis=1), np.stack([x1, actual_yes], axis=1)], axis=1)
     counter_segments = np.stack(
@@ -115,19 +165,32 @@ def main() -> None:
     output_dir = args.output_dir or (Path("outputs") / "experiments" / f"steering_{timestamp}")
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    intervention = SteeringIntervention(
-        model_checkpoint_path=args.model_checkpoint,
-        steerable_type=args.steerable_type,
-        steerable_checkpoint_path=args.steerable_checkpoint,
-        layer=args.layer,
-        device=args.device,
-    )
+    if args.additive:
+        assert args.lambda_ is not None
+        intervention = AdditiveSteeringIntervention(
+            model_checkpoint_path=args.model_checkpoint,
+            steerable_type=args.steerable_type,
+            steerable_checkpoint_path=args.steerable_checkpoint,
+            lambda_=args.lambda_,
+            layer=args.layer,
+            device=args.device,
+        )
+    else:
+        intervention = SteeringIntervention(
+            model_checkpoint_path=args.model_checkpoint,
+            steerable_type=args.steerable_type,
+            steerable_checkpoint_path=args.steerable_checkpoint,
+            layer=args.layer,
+            device=args.device,
+        )
     result = intervention.run(
         seq_len=args.seq_len, num_sequences=args.num_sequences, position=args.position
     )
 
     results_path = output_dir / "results.pt"
     torch.save({"metrics": result.metrics, "metadata": result.metadata}, results_path)
+
+    print(f"Saved results to {results_path}.")
 
     config = {
         "model_checkpoint": str(args.model_checkpoint),
@@ -138,6 +201,8 @@ def main() -> None:
         "position": "last" if args.position == "last" else int(args.position),
         "layer": args.layer,
         "output_dir": str(output_dir),
+        "additive": args.additive,
+        "lambda_": args.lambda_,
     }
     config_path = output_dir / "config.json"
     config_path.write_text(json.dumps(config, indent=2, sort_keys=True))
@@ -145,7 +210,10 @@ def main() -> None:
     image_dir = Path("images")
     image_dir.mkdir(parents=True, exist_ok=True)
     image_path = image_dir / f"steering_{timestamp}.png"
-    _plot_steering(result.metrics, image_path)
+    if args.additive:
+        _plot_additive_steering(result.metrics, result.metadata, image_path)
+    else:
+        _plot_steering(result.metrics, result.metadata, image_path)
 
 
 if __name__ == "__main__":

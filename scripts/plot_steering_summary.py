@@ -41,8 +41,20 @@ def main() -> None:
     if not results_path.is_file():
         raise SystemExit(f"Not a file: {results_path}")
 
-    data = torch.load(results_path, map_location="cpu", weights_only=True)
-    metrics = data["metrics"].numpy()
+    data = torch.load(results_path, map_location="cpu", weights_only=False)
+    metrics = data["metrics"]
+    metadata = data.get("metadata", {})
+    seq_idx = metadata.get("sequence_index")
+    if isinstance(seq_idx, torch.Tensor):
+        _, inverse = torch.unique(seq_idx, return_inverse=True)
+        n = int(inverse.max().item()) + 1
+        counts = torch.bincount(inverse, minlength=n).to(metrics.dtype)
+        agg = torch.zeros(n, metrics.shape[1], dtype=metrics.dtype)
+        for c in range(metrics.shape[1]):
+            agg[:, c].scatter_add_(0, inverse, metrics[:, c])
+        metrics = (agg / counts.unsqueeze(1)).numpy()
+    else:
+        metrics = metrics.numpy()
     if metrics.size == 0:
         raise SystemExit("No metrics in results.pt.")
 
@@ -62,15 +74,15 @@ def main() -> None:
     mean_actual = np.array([mean_actual_no, mean_actual_steer])
     lo_actual = np.array([lo_actual_no, lo_actual_steer])
     hi_actual = np.array([hi_actual_no, hi_actual_steer])
-    ax.fill_between(x, lo_actual, hi_actual, color="red", alpha=0.35)
-    ax.plot(x, mean_actual, color="red", lw=2, marker="o", markersize=8, label="KL from optimal (actual)")
+    ax.fill_between(x, lo_actual, hi_actual, color="red", alpha=0.5)
+    ax.plot(x, mean_actual, color="red", lw=1, marker="o", markersize=5, label="KL from optimal (actual)")
     ax.errorbar(x, mean_actual, yerr=[mean_actual - lo_actual, hi_actual - mean_actual], color="red", capsize=4, capthick=1.5, fmt="none", zorder=10)
 
     mean_counter = np.array([mean_counter_no, mean_counter_steer])
     lo_counter = np.array([lo_counter_no, lo_counter_steer])
     hi_counter = np.array([hi_counter_no, hi_counter_steer])
-    ax.fill_between(x, lo_counter, hi_counter, color="blue", alpha=0.35)
-    ax.plot(x, mean_counter, color="blue", lw=2, marker="o", markersize=8, label="KL from optimal (counterfactual)")
+    ax.fill_between(x, lo_counter, hi_counter, color="blue", alpha=0.5)
+    ax.plot(x, mean_counter, color="blue", lw=1, marker="o", markersize=5, label="KL from optimal (counterfactual)")
     ax.errorbar(x, mean_counter, yerr=[mean_counter - lo_counter, hi_counter - mean_counter], color="blue", capsize=4, capthick=1.5, fmt="none", zorder=10)
 
     ax.set_xticks(x)

@@ -4,12 +4,63 @@ from pathlib import Path
 from typing import Optional
 
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
 from mpl_toolkits.mplot3d import Axes3D
 
 from HMM import Mess3
 from probes.linear import LinearProbe
 from utils.simplex import project_3d_to_simplex2d
+
+
+def _simplex_triangle_vertices_2d() -> np.ndarray:
+    vertices_3d = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    vertices_2d = project_3d_to_simplex2d(torch.from_numpy(vertices_3d)).numpy()
+    return np.vstack([vertices_2d, vertices_2d[0:1]])
+
+
+def plot_beliefs_by_position(
+    dataset_path: Path | str,
+    output_path: Optional[Path | str] = None,
+    max_points_per_plot: Optional[int] = None,
+) -> plt.Figure:
+    dataset_path = Path(dataset_path)
+    data = torch.load(dataset_path, map_location="cpu")
+    beliefs = data["beliefs"].to(dtype=torch.float32)
+    seq_len = int(data["seq_len"])
+    num_sequences = beliefs.shape[0] // seq_len
+    beliefs_per_pos = beliefs.reshape(num_sequences, seq_len, -1)
+
+    triangle = _simplex_triangle_vertices_2d()
+    ncols = min(5, seq_len)
+    nrows = (seq_len + ncols - 1) // ncols
+    fig, axes = plt.subplots(nrows, ncols, figsize=(2.5 * ncols, 2.5 * nrows), constrained_layout=True)
+    if seq_len == 1:
+        axes = np.array([axes])
+    axes = axes.flatten()
+
+    for i in range(seq_len):
+        ax = axes[i]
+        pos_beliefs = beliefs_per_pos[:, i, :]
+        if max_points_per_plot is not None and pos_beliefs.shape[0] > max_points_per_plot:
+            perm = torch.randperm(
+                pos_beliefs.shape[0], generator=torch.Generator().manual_seed(i)
+            )[:max_points_per_plot]
+            pos_beliefs = pos_beliefs[perm]
+        coords_2d = project_3d_to_simplex2d(pos_beliefs).numpy()
+        ax.plot(triangle[:, 0], triangle[:, 1], "k-", linewidth=0.8, alpha=0.6)
+        ax.scatter(coords_2d[:, 0], coords_2d[:, 1], s=0.5, alpha=0.6)
+        ax.set_title(f"Position {i}")
+        ax.set_aspect("equal", adjustable="box")
+        ax.set_xlim(-0.05, 1.05)
+        ax.set_ylim(-0.05, 1.05)
+
+    for j in range(seq_len, len(axes)):
+        axes[j].set_visible(False)
+
+    if output_path is not None:
+        fig.savefig(output_path)
+    return fig
 
 
 def belief_probe_comparison_plot(

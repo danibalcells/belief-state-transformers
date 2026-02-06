@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Literal
+from typing import Any, Literal
 
 import torch
 from torch import nn
@@ -62,6 +62,8 @@ class SteerableProbe(nn.Module, ABC):
         belief_vector: torch.Tensor,
         sequence: torch.Tensor,
         position: int | Literal["last"] = "last",
+        current_belief: torch.Tensor | None = None,
+        lambda_: float | None = None,
     ) -> torch.Tensor:
         if self.transformer is None or self.layer is None:
             raise ValueError("transformer and layer must be set before steering")
@@ -82,6 +84,65 @@ class SteerableProbe(nn.Module, ABC):
             def hook_fn(acts: torch.Tensor, hook: object | None = None) -> torch.Tensor:
                 updated = acts.clone()
                 updated[:, pos, :] = replacement
+                return updated
+
+            logits = self.transformer.run_with_hooks(
+                tokens,
+                return_type="logits",
+                fwd_hooks=[(f"blocks.{self.layer}.hook_resid_post", hook_fn)],
+            )
+            probs = torch.softmax(logits[:, pos, :], dim=-1)
+        return probs
+
+
+class AdditiveSteerableProbe(SteerableProbe):
+    def __init__(self, *args: Any, lambda_: float = 0.5, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._steer_lambda = max(0.0, min(1.0, lambda_))
+
+    def steer_to_belief(
+        self,
+        belief_vector: torch.Tensor,
+        sequence: torch.Tensor,
+        position: int | Literal["last"] = "last",
+        current_belief: torch.Tensor | None = None,
+        lambda_: float | None = None,
+    ) -> torch.Tensor:
+        if current_belief is None:
+            raise ValueError("current_belief is required for additive steering")
+        lam = (
+            max(0.0, min(1.0, lambda_))
+            if lambda_ is not None
+            else self._steer_lambda
+        )
+        if self.transformer is None or self.layer is None:
+            raise ValueError("transformer and layer must be set before steering")
+        device = next(self.transformer.parameters()).device
+        tokens = _ensure_batch(sequence).to(device)
+        belief_batch = _ensure_belief_batch(belief_vector).to(device, dtype=torch.float32)
+        current_batch = _ensure_belief_batch(current_belief).to(device, dtype=torch.float32)
+        if belief_batch.shape[0] == 1 and tokens.shape[0] > 1:
+            belief_batch = belief_batch.expand(tokens.shape[0], -1)
+        if current_batch.shape[0] == 1 and tokens.shape[0] > 1:
+            current_batch = current_batch.expand(tokens.shape[0], -1)
+        if belief_batch.shape[0] != tokens.shape[0]:
+            raise ValueError(
+                f"belief batch size {belief_batch.shape[0]} does not match tokens batch {tokens.shape[0]}"
+            )
+        if current_batch.shape[0] != tokens.shape[0]:
+            raise ValueError(
+                f"current_belief batch size {current_batch.shape[0]} does not match tokens batch {tokens.shape[0]}"
+            )
+        pos = _resolve_position(tokens, position)
+        self.eval()
+        with torch.no_grad():
+            proj_implanted = self.decode_from_belief(belief_batch)
+            proj_current = self.decode_from_belief(current_batch)
+            delta = proj_implanted - proj_current
+
+            def hook_fn(acts: torch.Tensor, hook: object | None = None) -> torch.Tensor:
+                updated = acts.clone()
+                updated[:, pos, :] = acts[:, pos, :] + lam * delta
                 return updated
 
             logits = self.transformer.run_with_hooks(
