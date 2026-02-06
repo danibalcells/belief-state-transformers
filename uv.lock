@@ -216,6 +216,7 @@ dependencies = [
     { name = "pyarrow" },
     { name = "pytest" },
     { name = "torch" },
+    { name = "tqdm" },
     { name = "transformer-lens" },
     { name = "wandb" },
 ]
@@ -230,6 +231,7 @@ requires-dist = [
     { name = "pyarrow", specifier = "==14.0.2" },
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "torch", specifier = ">=2.10.0" },
+    { name = "tqdm", specifier = ">=4.67.0" },
     { name = "transformer-lens", specifier = ">=2.17.0" },
     { name = "wandb", specifier = "==0.22.3" },
 ]

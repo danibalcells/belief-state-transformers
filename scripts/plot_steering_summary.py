@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+
+BELIEF_SOURCE_TITLES: dict[str, str] = {
+    "counterfactual": "Steering to counterfactual beliefs",
+    "other_seq_reachable": "Steering to valid beliefs unreachable given sequence",
+    "random_simplex": "Steering to random beliefs",
+}
 
 
 def _mean_and_ci(values: np.ndarray, confidence: float = 0.95) -> tuple[float, float, float]:
@@ -68,8 +75,18 @@ def main() -> None:
     mean_counter_no, lo_counter_no, hi_counter_no = _mean_and_ci(counter_no, args.confidence)
     mean_counter_steer, lo_counter_steer, hi_counter_steer = _mean_and_ci(counter_steer, args.confidence)
 
+    config_path = results_path.parent / "config.json"
+    title = None
+    if config_path.is_file():
+        config = json.loads(config_path.read_text())
+        belief_source = config.get("belief_source")
+        if belief_source is not None and belief_source in BELIEF_SOURCE_TITLES:
+            title = BELIEF_SOURCE_TITLES[belief_source]
+
     x = np.array([0.0, 1.0])
     fig, ax = plt.subplots(figsize=(6, 4), constrained_layout=True)
+    if title is not None:
+        ax.set_title(title)
 
     mean_actual = np.array([mean_actual_no, mean_actual_steer])
     lo_actual = np.array([lo_actual_no, lo_actual_steer])

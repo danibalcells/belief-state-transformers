@@ -7,7 +7,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -17,9 +17,19 @@ import torch
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from interventions.steering import AdditiveSteeringIntervention, SteeringIntervention
+from interventions.steering import (
+    AdditiveSteeringIntervention,
+    BeliefSource,
+    SteeringIntervention,
+)
 
 DEFAULT_SEQ_LEN = 10
+
+BELIEF_SOURCE_TITLES: dict[BeliefSource, str] = {
+    "counterfactual": "Steering to counterfactual beliefs",
+    "other_seq_reachable": "Steering to valid beliefs unreachable given sequence",
+    "random_simplex": "Steering to random beliefs",
+}
 
 @dataclass(frozen=True)
 class SteeringArgs:
@@ -34,6 +44,7 @@ class SteeringArgs:
     seq_len: int = DEFAULT_SEQ_LEN
     additive: bool = False
     lambda_: float | None = None
+    belief_source: BeliefSource = "counterfactual"
 
 
 def _parse_position(value: str) -> int | Literal["last"]:
@@ -55,6 +66,12 @@ def parse_args() -> SteeringArgs:
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--additive", action="store_true")
     parser.add_argument("--lambda", dest="lambda_", type=float, default=None)
+    parser.add_argument(
+        "--belief-source",
+        type=str,
+        choices=["counterfactual", "other_seq_reachable", "random_simplex"],
+        default="counterfactual",
+    )
     args = parser.parse_args()
     if args.additive and args.lambda_ is None:
         parser.error("--lambda is required when --additive is set")
@@ -72,10 +89,16 @@ def parse_args() -> SteeringArgs:
         device=args.device,
         additive=args.additive,
         lambda_=args.lambda_,
+        belief_source=cast(BeliefSource, args.belief_source),
     )
 
 
-def _plot_additive_steering(metrics: torch.Tensor, metadata: dict, output_path: Path) -> None:
+def _plot_additive_steering(
+    metrics: torch.Tensor,
+    metadata: dict,
+    output_path: Path,
+    title: str | None = None,
+) -> None:
     seq_idx = metadata.get("sequence_index")
     if isinstance(seq_idx, torch.Tensor):
         metrics = _aggregate_metrics_by_sequence(metrics.detach().cpu(), seq_idx.cpu())
@@ -83,6 +106,8 @@ def _plot_additive_steering(metrics: torch.Tensor, metadata: dict, output_path: 
     if metrics.numel() == 0:
         fig, ax = plt.subplots(figsize=(6, 4), constrained_layout=True)
         ax.set_ylabel("KL divergence")
+        if title is not None:
+            ax.set_title(title)
         fig.savefig(output_path, dpi=300)
         plt.close(fig)
         return
@@ -92,9 +117,11 @@ def _plot_additive_steering(metrics: torch.Tensor, metadata: dict, output_path: 
     kl_counter = values[:, 1]
 
     fig, ax = plt.subplots(figsize=(6, 4), constrained_layout=True)
+    if title is not None:
+        ax.set_title(title)
     ax.scatter(kl_actual, kl_counter, alpha=0.25, s=8)
     ax.set_xlabel("KL(optimal actual || steered pred)")
-    ax.set_ylabel("KL(optimal counterfactual || steered pred)")
+    ax.set_ylabel("KL(optimal injected || steered pred)")
     ax.axline((0, 0), slope=1, color="gray", linestyle="--", alpha=0.5)
     fig.savefig(output_path, dpi=300)
     plt.close(fig)
@@ -111,7 +138,12 @@ def _aggregate_metrics_by_sequence(metrics: torch.Tensor, sequence_index: torch.
     return agg
 
 
-def _plot_steering(metrics: torch.Tensor, metadata: dict, output_path: Path) -> None:
+def _plot_steering(
+    metrics: torch.Tensor,
+    metadata: dict,
+    output_path: Path,
+    title: str | None = None,
+) -> None:
     seq_idx = metadata.get("sequence_index")
     if isinstance(seq_idx, torch.Tensor):
         metrics = _aggregate_metrics_by_sequence(metrics.detach().cpu(), seq_idx.cpu())
@@ -121,6 +153,8 @@ def _plot_steering(metrics: torch.Tensor, metadata: dict, output_path: Path) -> 
         ax.set_xticks([0, 1])
         ax.set_xticklabels(["No Steering", "Steering"])
         ax.set_ylabel("KL divergence")
+        if title is not None:
+            ax.set_title(title)
         fig.savefig(output_path, dpi=300)
         plt.close(fig)
         return
@@ -134,6 +168,8 @@ def _plot_steering(metrics: torch.Tensor, metadata: dict, output_path: Path) -> 
     x1 = np.ones_like(actual_no)
 
     fig, ax = plt.subplots(figsize=(7, 4), constrained_layout=True)
+    if title is not None:
+        ax.set_title(title)
     ax.scatter(x0, actual_no, color="red", alpha=0.1, s=8)
     ax.scatter(x1, actual_yes, color="red", alpha=0.1, s=8)
     ax.scatter(x0, counter_no, color="blue", alpha=0.1, s=8)
@@ -151,7 +187,7 @@ def _plot_steering(metrics: torch.Tensor, metadata: dict, output_path: Path) -> 
     ax.set_ylabel("KL divergence")
     legend_handles = [
         Line2D([0], [0], color="red", lw=2, label="KL from optimal given actual sequence"),
-        Line2D([0], [0], color="blue", lw=2, label="KL from optimal given counterfactual"),
+        Line2D([0], [0], color="blue", lw=2, label="KL from optimal given injected belief"),
     ]
     ax.legend(handles=legend_handles, loc="upper right")
     fig.savefig(output_path, dpi=300)
@@ -184,7 +220,10 @@ def main() -> None:
             device=args.device,
         )
     result = intervention.run(
-        seq_len=args.seq_len, num_sequences=args.num_sequences, position=args.position
+        seq_len=args.seq_len,
+        num_sequences=args.num_sequences,
+        position=args.position,
+        belief_source=args.belief_source,
     )
 
     results_path = output_dir / "results.pt"
@@ -203,6 +242,7 @@ def main() -> None:
         "output_dir": str(output_dir),
         "additive": args.additive,
         "lambda_": args.lambda_,
+        "belief_source": args.belief_source,
     }
     config_path = output_dir / "config.json"
     config_path.write_text(json.dumps(config, indent=2, sort_keys=True))
@@ -210,10 +250,15 @@ def main() -> None:
     image_dir = Path("images")
     image_dir.mkdir(parents=True, exist_ok=True)
     image_path = image_dir / f"steering_{timestamp}.png"
+    plot_title = BELIEF_SOURCE_TITLES[args.belief_source]
     if args.additive:
-        _plot_additive_steering(result.metrics, result.metadata, image_path)
+        _plot_additive_steering(
+            result.metrics, result.metadata, image_path, title=plot_title
+        )
     else:
-        _plot_steering(result.metrics, result.metadata, image_path)
+        _plot_steering(
+            result.metrics, result.metadata, image_path, title=plot_title
+        )
 
 
 if __name__ == "__main__":
